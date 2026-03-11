@@ -2,6 +2,7 @@
   "name": "lazizaka-calculator",
   "version": "1.0.0",
   "description": "",
+  "main": "app.js",
   "scripts": {
     "build": "echo 'No build needed'",
     "test": "echo \"Error: no test specified\" && exit 1"
