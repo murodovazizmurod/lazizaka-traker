@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const { sql } = require('@vercel/postgres');
+const { createClient } = require('@vercel/postgres');
 const path = require('path');
 
 const app = express();
@@ -13,10 +13,24 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(__dirname));
 
+// Database Client
+const client = createClient({
+  connectionString: process.env.POSTGRES_URL
+});
+
+async function connectDb() {
+    try {
+        await client.connect();
+        console.log('Connected to Database');
+    } catch (err) {
+        console.error('Database connection failed:', err);
+    }
+}
+
 // Database Initialization
 async function initDb() {
     try {
-        await sql`
+        await client.sql`
             CREATE TABLE IF NOT EXISTS transactions (
                 id SERIAL PRIMARY KEY,
                 amount DECIMAL(12, 2) NOT NULL,
@@ -25,7 +39,7 @@ async function initDb() {
                 date TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             );
         `;
-        console.log('Database initialized');
+        console.log('Database schema verified');
     } catch (err) {
         console.error('Database initialization failed:', err);
     }
@@ -54,7 +68,7 @@ app.post('/api/login', (req, res) => {
 // CRUD Routes
 app.get('/api/transactions', authenticate, async (req, res) => {
     try {
-        const { rows } = await sql`SELECT * FROM transactions ORDER BY date DESC`;
+        const { rows } = await client.sql`SELECT * FROM transactions ORDER BY date DESC`;
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -64,7 +78,7 @@ app.get('/api/transactions', authenticate, async (req, res) => {
 app.post('/api/transactions', authenticate, async (req, res) => {
     const { amount, description, type, date } = req.body;
     try {
-        const { rows } = await sql`
+        const { rows } = await client.sql`
             INSERT INTO transactions (amount, description, type, date)
             VALUES (${amount}, ${description}, ${type}, ${date || new Date().toISOString()})
             RETURNING *
@@ -79,7 +93,7 @@ app.put('/api/transactions/:id', authenticate, async (req, res) => {
     const id = req.params.id;
     const { amount, description, type, date } = req.body;
     try {
-        const { rows } = await sql`
+        const { rows } = await client.sql`
             UPDATE transactions 
             SET amount = ${amount}, description = ${description}, type = ${type}, date = ${date}
             WHERE id = ${id}
@@ -98,7 +112,7 @@ app.put('/api/transactions/:id', authenticate, async (req, res) => {
 app.delete('/api/transactions/:id', authenticate, async (req, res) => {
     const id = req.params.id;
     try {
-        const { rowCount } = await sql`DELETE FROM transactions WHERE id = ${id}`;
+        const { rowCount } = await client.sql`DELETE FROM transactions WHERE id = ${id}`;
         if (rowCount > 0) {
             res.status(204).send();
         } else {
@@ -109,14 +123,17 @@ app.delete('/api/transactions/:id', authenticate, async (req, res) => {
     }
 });
 
-// Initialization and Startup
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, async () => {
-        await initDb();
-        console.log(`Server running at http://localhost:${PORT}`);
-    });
-} else {
-    initDb();
-}
+// Startup
+const start = async () => {
+    await connectDb();
+    await initDb();
+    if (process.env.NODE_ENV !== 'production') {
+        app.listen(PORT, () => {
+            console.log(`Server running at http://localhost:${PORT}`);
+        });
+    }
+};
+
+start();
 
 module.exports = app;
