@@ -1,21 +1,34 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const fs = require('fs');
+const { sql } = require('@vercel/postgres');
 const path = require('path');
 
 const app = express();
-const PORT = 3000;
-const DATA_FILE = path.join(__dirname, 'data.json');
-const AUTH_TOKEN = 'lazizaka-secret-token';
+const PORT = process.env.PORT || 3000;
+const AUTH_TOKEN = process.env.AUTH_TOKEN || 'lazizaka-secret-token';
 
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(__dirname));
 
-// Ensure data.json exists
-if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify([]));
+// Database Initialization
+async function initDb() {
+    try {
+        await sql`
+            CREATE TABLE IF NOT EXISTS transactions (
+                id SERIAL PRIMARY KEY,
+                amount DECIMAL(12, 2) NOT NULL,
+                description TEXT NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                date TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        console.log('Database initialized');
+    } catch (err) {
+        console.error('Database initialization failed:', err);
+    }
 }
 
 // Auth Middleware
@@ -31,7 +44,6 @@ const authenticate = (req, res, next) => {
 // Login Route
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    // Static credentials
     if (username === 'admin' && password === 'azizmurodjon') {
         res.json({ token: AUTH_TOKEN });
     } else {
@@ -40,45 +52,71 @@ app.post('/api/login', (req, res) => {
 });
 
 // CRUD Routes
-app.get('/api/transactions', authenticate, (req, res) => {
-    const data = JSON.parse(fs.readFileSync(DATA_FILE));
-    res.json(data);
-});
-
-app.post('/api/transactions', authenticate, (req, res) => {
-    const data = JSON.parse(fs.readFileSync(DATA_FILE));
-    const newTransaction = { ...req.body, id: Date.now() };
-    data.push(newTransaction);
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    res.status(201).json(newTransaction);
-});
-
-app.put('/api/transactions/:id', authenticate, (req, res) => {
-    const id = parseInt(req.params.id);
-    let data = JSON.parse(fs.readFileSync(DATA_FILE));
-    const index = data.findIndex(t => t.id === id);
-    if (index !== -1) {
-        data[index] = { ...data[index], ...req.body };
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-        res.json(data[index]);
-    } else {
-        res.status(404).json({ error: 'Not found' });
+app.get('/api/transactions', authenticate, async (req, res) => {
+    try {
+        const { rows } = await sql`SELECT * FROM transactions ORDER BY date DESC`;
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-app.delete('/api/transactions/:id', authenticate, (req, res) => {
-    const id = parseInt(req.params.id);
-    let data = JSON.parse(fs.readFileSync(DATA_FILE));
-    const initialLength = data.length;
-    data = data.filter(t => t.id !== id);
-    if (data.length < initialLength) {
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-        res.status(204).send();
-    } else {
-        res.status(404).json({ error: 'Not found' });
+app.post('/api/transactions', authenticate, async (req, res) => {
+    const { amount, description, type, date } = req.body;
+    try {
+        const { rows } = await sql`
+            INSERT INTO transactions (amount, description, type, date)
+            VALUES (${amount}, ${description}, ${type}, ${date || new Date().toISOString()})
+            RETURNING *
+        `;
+        res.status(201).json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+app.put('/api/transactions/:id', authenticate, async (req, res) => {
+    const id = req.params.id;
+    const { amount, description, type, date } = req.body;
+    try {
+        const { rows } = await sql`
+            UPDATE transactions 
+            SET amount = ${amount}, description = ${description}, type = ${type}, date = ${date}
+            WHERE id = ${id}
+            RETURNING *
+        `;
+        if (rows.length > 0) {
+            res.json(rows[0]);
+        } else {
+            res.status(404).json({ error: 'Not found' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
+
+app.delete('/api/transactions/:id', authenticate, async (req, res) => {
+    const id = req.params.id;
+    try {
+        const { rowCount } = await sql`DELETE FROM transactions WHERE id = ${id}`;
+        if (rowCount > 0) {
+            res.status(204).send();
+        } else {
+            res.status(404).json({ error: 'Not found' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Initialization and Startup
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, async () => {
+        await initDb();
+        console.log(`Server running at http://localhost:${PORT}`);
+    });
+} else {
+    initDb();
+}
+
+module.exports = app;
