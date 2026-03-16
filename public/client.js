@@ -47,8 +47,10 @@ function showModal(type, id = null) {
     const titles = {
         income: id ? 'Редактировать доход' : 'Добавить доход',
         expense: id ? 'Редактировать расход' : 'Добавить расход',
-        debt: id ? 'Редактировать (Занял)' : 'Я занял',
-        loan: id ? 'Редактировать (Дал в долг)' : 'Я дал в долг'
+        debt: id ? 'Редактировать долг' : 'Я занял (Долг)',
+        loan: id ? 'Редактировать заем' : 'Я дал в долг',
+        repay_debt: id ? 'Редактировать выплату' : 'Я вернул долг',
+        collect_loan: id ? 'Редактировать возврат' : 'Мне вернули долг'
     };
 
     if (id) {
@@ -87,7 +89,21 @@ async function loadData() {
 
 function updateSummary() {
     const totals = transactions.reduce((acc, t) => {
-        acc[t.type] += parseFloat(t.amount);
+        const type = t.type ? t.type.toLowerCase() : 'unknown';
+        const amount = parseFloat(t.amount || 0);
+        
+        if (type === 'income') acc.income += amount;
+        else if (type === 'expense') acc.expense += amount;
+        else if (type === 'debt') acc.debt += amount;
+        else if (type === 'loan') acc.loan += amount;
+        else if (type === 'repay_debt') {
+            acc.debt -= amount; // Reduce what I owe
+            acc.expense += amount; // Treat as outgoing cash
+        }
+        else if (type === 'collect_loan') {
+            acc.loan -= amount; // Reduce what is owed to me
+            acc.income += amount; // Treat as incoming cash
+        }
         return acc;
     }, { income: 0, expense: 0, debt: 0, loan: 0 });
 
@@ -124,8 +140,10 @@ function renderTransactions() {
     const typeLabels = {
         income: 'Доход',
         expense: 'Расход',
-        debt: 'Занял',
-        loan: 'Дал в долг'
+        debt: 'Взял в долг',
+        loan: 'Дал в долг',
+        repay_debt: 'Вернул долг',
+        collect_loan: 'Получил возврат'
     };
 
     ELEMENTS.transactionList.innerHTML = transactions
@@ -141,7 +159,7 @@ function renderTransactions() {
 
             return `
                 <tr class="time-row">
-                    <td>${dateStr} ${timeStr} <span class="type-tag">${typeLabels[t.type]}</span></td>
+                    <td>${dateStr} ${timeStr} <span class="type-tag">${typeLabels[t.type] || t.type || 'Транзакция'}</span></td>
                     <td style="text-align: right;">
                         <div class="action-btns">
                             <button class="btn" style="padding: 2px 8px; font-size: 0.7rem;" onclick="showModal('${t.type}', '${t.id}')">🖉</button>

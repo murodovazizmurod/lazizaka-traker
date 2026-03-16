@@ -2,59 +2,95 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const { createClient } = require('@vercel/postgres');
+const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const AUTH_TOKEN = process.env.AUTH_TOKEN || 'lazizaka-secret-token';
+const PORT = 3000;
+const AUTH_TOKEN = 'lazizaka-secret-token'; // Hardcoded for debugging
+
+const logFile = path.join(__dirname, '..', 'debug.log');
+const log = (msg) => {
+    const entry = `[${new Date().toISOString()}] ${msg}\n`;
+    fs.appendFileSync(logFile, entry);
+    console.log(msg);
+};
 
 app.use(cors());
+app.use((req, res, next) => {
+    log(`Incoming: ${req.method} ${req.url}`);
+    next();
+});
 app.use(bodyParser.json());
-
-// Database Client
-const client = createClient({
-  connectionString: process.env.POSTGRES_URL
+app.use((req, res, next) => {
+    if (req.body && Object.keys(req.body).length > 0) {
+        console.log(`[TRACE] Body:`, JSON.stringify(req.body));
+    }
+    next();
 });
 
-async function connectDb() {
-    try {
-        await client.connect();
-        console.log('Connected to Database');
-    } catch (err) {
-        console.error('Database connection failed:', err);
+// Database Client (SQLite)
+const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'database.sqlite');
+console.log('Connecting to SQLite at:', dbPath);
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('Database connection failed:', err.message);
+    } else {
+        console.log('Connected to the local SQLite database successfully.');
+        initDb();
     }
-}
+});
 
 // Database Initialization
 async function initDb() {
-    try {
-        await client.sql`
-            CREATE TABLE IF NOT EXISTS transactions (
-                id SERIAL PRIMARY KEY,
-                amount DECIMAL(12, 2) NOT NULL,
-                description TEXT NOT NULL,
-                type VARCHAR(20) NOT NULL,
-                date TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-        `;
-        console.log('Database schema verified');
-    } catch (err) {
-        console.error('Database initialization failed:', err);
-    }
+    const query = `
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount DECIMAL(12, 2) NOT NULL,
+            description TEXT NOT NULL,
+            type VARCHAR(20) NOT NULL,
+            date TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    `;
+    console.log('Running initDb query...');
+    db.run(query, [], (err) => {
+        if (err) {
+            console.error('Database initialization failed:', err);
+        } else {
+            console.log('Database schema verified successfully.');
+        }
+    });
 }
 
-// Auth Middleware
 const authenticate = (req, res, next) => {
-    const token = req.headers['authorization'];
-    if (token === AUTH_TOKEN) {
+    const authHeader = req.headers['authorization'];
+    log(`Comparing: [${authHeader}] vs [${AUTH_TOKEN}]`);
+    
+    if (authHeader && authHeader.trim() === AUTH_TOKEN) {
+        log('Auth successful');
         next();
     } else {
+        log(`Auth failed. Recv: [${authHeader}]`);
         res.status(401).json({ error: 'Unauthorized' });
     }
 };
 
 // Login Route
+// Health Check Route
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// Diagnostic Route (Temporary)
+app.get('/api/diag', (req, res) => {
+    res.json({ 
+        expectedToken: AUTH_TOKEN,
+        receivedHeader: req.headers['authorization'],
+        headers: req.headers
+    });
+});
+
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
     if (username === 'admin' && password === 'azizmurodjon') {
@@ -65,63 +101,73 @@ app.post('/api/login', (req, res) => {
 });
 
 // CRUD Routes
-app.get('/api/transactions', authenticate, async (req, res) => {
-    try {
-        const { rows } = await client.sql`SELECT * FROM transactions ORDER BY date DESC`;
+app.get('/api/transactions', authenticate, (req, res) => {
+    db.all('SELECT * FROM transactions ORDER BY date DESC', [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    });
 });
 
-app.post('/api/transactions', authenticate, async (req, res) => {
+app.post('/api/transactions', authenticate, (req, res) => {
     const { amount, description, type, date } = req.body;
-    try {
-        const { rows } = await client.sql`
-            INSERT INTO transactions (amount, description, type, date)
-            VALUES (${amount}, ${description}, ${type}, ${date || new Date().toISOString()})
-            RETURNING *
-        `;
-        res.status(201).json(rows[0]);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    console.log('POST /api/transactions', { amount, description, type, date });
+    
+    const query = `INSERT INTO transactions (amount, description, type, date) VALUES (?, ?, ?, ?)`;
+    const params = [amount, description, type, date || new Date().toISOString()];
+    
+    console.log(`[DB] Executing INSERT for amount: ${amount}`);
+    db.run(query, params, function(err) {
+        console.log('[DB] INSERT callback fired');
+        if (err) {
+            console.error('[DB] INSERT Error:', err);
+            return res.status(500).json({ error: err.message });
+        }
+        
+        const lastID = this.lastID;
+        console.log(`[DB] Created ID: ${lastID}, fetching row...`);
+        db.get(`SELECT * FROM transactions WHERE id = ?`, [lastID], (err, row) => {
+            console.log('[DB] GET callback fired');
+            if (err) {
+                console.error('[DB] GET Error:', err);
+                return res.status(500).json({ error: err.message });
+            }
+            console.log('[DB] Success, returning data');
+            res.status(201).json(row);
+        });
+    });
 });
 
-app.put('/api/transactions/:id', authenticate, async (req, res) => {
+app.put('/api/transactions/:id', authenticate, (req, res) => {
     const id = req.params.id;
     const { amount, description, type, date } = req.body;
-    try {
-        const { rows } = await client.sql`
-            UPDATE transactions 
-            SET amount = ${amount}, description = ${description}, type = ${type}, date = ${date}
-            WHERE id = ${id}
-            RETURNING *
-        `;
-        if (rows.length > 0) {
-            res.json(rows[0]);
+    
+    const query = `UPDATE transactions SET amount = ?, description = ?, type = ?, date = ? WHERE id = ?`;
+    const params = [amount, description, type, date, id];
+    
+    db.run(query, params, function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes > 0) {
+            db.get(`SELECT * FROM transactions WHERE id = ?`, [id], (err, row) => {
+                if (err) return res.status(500).json({ error: err.message });
+                res.json(row);
+            });
         } else {
             res.status(404).json({ error: 'Not found' });
         }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    });
 });
 
-app.delete('/api/transactions/:id', authenticate, async (req, res) => {
+app.delete('/api/transactions/:id', authenticate, (req, res) => {
     const id = req.params.id;
-    try {
-        const { rowCount } = await client.sql`DELETE FROM transactions WHERE id = ${id}`;
-        if (rowCount > 0) {
+    db.run('DELETE FROM transactions WHERE id = ?', [id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes > 0) {
             res.status(204).send();
         } else {
             res.status(404).json({ error: 'Not found' });
         }
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    });
 });
 
-// Routes already use client.sql which handles pooling/connections properly with createClient
-
+// Routes already use direct sqlite3 calls
 module.exports = app;
