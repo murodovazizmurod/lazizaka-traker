@@ -18,6 +18,8 @@ CORS(app)
 
 AUTH_TOKEN = os.getenv('AUTH_TOKEN', 'lazizaka-secret-token')
 DATABASE_PATH = os.getenv('DATABASE_PATH', 'database.sqlite')
+ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'azizmurodjon')
 
 log(f"Starting Flask... Auth Token: {AUTH_TOKEN}, DB: {DATABASE_PATH}")
 
@@ -68,7 +70,7 @@ def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
-    if username == 'admin' and password == 'azizmurodjon':
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
         return jsonify({"token": AUTH_TOKEN})
     return jsonify({"error": "Invalid credentials"}), 401
 
