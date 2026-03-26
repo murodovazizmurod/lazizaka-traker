@@ -92,22 +92,31 @@ function updateSummary() {
         const type = t.type ? t.type.toLowerCase() : 'unknown';
         const amount = parseFloat(t.amount || 0);
         
-        if (type === 'income') acc.income += amount;
-        else if (type === 'expense') acc.expense += amount;
-        else if (type === 'debt') acc.debt += amount;
-        else if (type === 'loan') acc.loan += amount;
-        else if (type === 'repay_debt') {
-            acc.debt -= amount; // Reduce what I owe
-            acc.expense += amount; // Treat as outgoing cash
-        }
-        else if (type === 'collect_loan') {
-            acc.loan -= amount; // Reduce what is owed to me
-            acc.income += amount; // Treat as incoming cash
+        if (type === 'income') {
+            acc.income += amount;
+            acc.balance += amount;
+        } else if (type === 'expense') {
+            acc.expense += amount;
+            acc.balance -= amount;
+        } else if (type === 'debt') {
+            acc.debt += amount;
+            acc.balance += amount;
+        } else if (type === 'loan') {
+            acc.loan += amount;
+            acc.balance -= amount;
+        } else if (type === 'repay_debt') {
+            acc.debt -= amount;
+            acc.expense += amount;
+            acc.balance -= amount;
+        } else if (type === 'collect_loan') {
+            acc.loan -= amount;
+            acc.income += amount;
+            acc.balance += amount;
         }
         return acc;
-    }, { income: 0, expense: 0, debt: 0, loan: 0 });
+    }, { income: 0, expense: 0, debt: 0, loan: 0, balance: 0 });
 
-    const balance = totals.income - totals.expense;
+    const balance = totals.balance;
     
     ELEMENTS.totalBalance.innerText = `$${balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     
@@ -233,6 +242,67 @@ window.onclick = function(event) {
     if (event.target == ELEMENTS.modal) {
         closeModal();
     }
+}
+
+// Settings Dropdown
+const dropBtn = document.getElementById('dropBtn');
+const dropdown = document.getElementById('myDropdown');
+
+if (dropBtn) {
+    dropBtn.onclick = (e) => {
+        e.stopPropagation();
+        dropdown.classList.toggle('show');
+    };
+}
+
+window.addEventListener('click', () => {
+    if (dropdown && dropdown.classList.contains('show')) {
+        dropdown.classList.remove('show');
+    }
+});
+
+async function exportData() {
+    const data = await apiRequest('/api/export');
+    if (!data) return alert('Ошибка при экспорте');
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lazizaka_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function triggerImport() {
+    document.getElementById('importFile').click();
+}
+
+async function importData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (!confirm(`Импортировать ${data.length} транзакций? Это добавит их к текущим данным.`)) return;
+            
+            const result = await apiRequest('/api/import', 'POST', data);
+            if (result) {
+                alert('Данные успешно импортированы!');
+                loadData();
+            } else {
+                alert('Ошибка при импорте');
+            }
+        } catch (err) {
+            alert('Неверный формат файла');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
 }
 
 // Initial Load

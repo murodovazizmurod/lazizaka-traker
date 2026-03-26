@@ -160,6 +160,49 @@ def delete_transaction(trans_id):
         log(f"DELETE Error: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/export', methods=['GET'])
+@require_auth
+def export_transactions():
+    log("GET /api/export")
+    try:
+        conn = get_db_connection()
+        rows = conn.execute('SELECT amount, description, type, date FROM transactions ORDER BY date DESC').fetchall()
+        conn.close()
+        return jsonify([dict(row) for row in rows])
+    except Exception as e:
+        log(f"Export Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/import', methods=['POST'])
+@require_auth
+def import_transactions():
+    log("POST /api/import")
+    data = request.get_json()
+    if not isinstance(data, list):
+        return jsonify({"error": "Invalid format, expected a list"}), 400
+        
+    try:
+        conn = get_db_connection()
+        # Using a transaction for bulk import
+        with conn:
+            for item in data:
+                amount = item.get('amount')
+                description = item.get('description')
+                trans_type = item.get('type')
+                date = item.get('date')
+                
+                if amount is not None and description and trans_type:
+                    conn.execute(
+                        'INSERT INTO transactions (amount, description, type, date) VALUES (?, ?, ?, ?)',
+                        (amount, description, trans_type, date)
+                    )
+        conn.close()
+        log(f"Imported {len(data)} transactions")
+        return jsonify({"message": f"Successfully imported {len(data)} transactions"}), 201
+    except Exception as e:
+        log(f"Import Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # Static Routes LAST
 @app.route('/')
 def serve_index():

@@ -11,9 +11,19 @@
 </head>
 <body>
     <div class="container">
-        <header style="display: flex; justify-content: space-between; align-items: baseline;">
+        <header style="display: flex; justify-content: space-between; align-items: center;">
             <h1>Lazizaka</h1>
-            <button class="btn" onclick="logout()" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Выйти</button>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div class="dropdown">
+                    <button class="btn btn-icon" id="dropBtn">⚙️</button>
+                    <div class="dropdown-content" id="myDropdown">
+                        <a href="#" onclick="exportData()">📥 Скачать бэкап</a>
+                        <a href="#" onclick="triggerImport()">📤 Загрузить данные</a>
+                        <input type="file" id="importFile" style="display: none;" accept=".json" onchange="importData(event)">
+                    </div>
+                </div>
+                <button class="btn btn-logout" onclick="logout()">Выйти</button>
+            </div>
         </header>
 
         <section class="summary-cards">
