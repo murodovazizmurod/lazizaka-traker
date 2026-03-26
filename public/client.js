@@ -106,11 +106,9 @@ function updateSummary() {
             acc.balance -= amount;
         } else if (type === 'repay_debt') {
             acc.debt -= amount;
-            acc.expense += amount;
             acc.balance -= amount;
         } else if (type === 'collect_loan') {
             acc.loan -= amount;
-            acc.income += amount;
             acc.balance += amount;
         }
         return acc;
