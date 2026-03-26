@@ -36,3 +36,31 @@ To run this application as a permanent service on Ubuntu:
    sudo systemctl status lazizaka
    curl http://localhost:7523/api/health
    ```
+
+## Nginx Reverse Proxy (Linking Domain)
+
+To link `lazizaka.delete.uz` to your application:
+
+1. **Install Nginx**:
+   ```bash
+   sudo apt install nginx
+   ```
+
+2. **Configure Nginx**:
+   Copy the `lazizaka.conf` to Nginx's sites-available:
+   ```bash
+   sudo cp lazizaka.conf /etc/nginx/sites-available/lazizaka
+   ```
+
+3. **Enable the Site**:
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/lazizaka /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl restart nginx
+   ```
+
+4. **SSL (HTTPS) - Optional but Recommended**:
+   ```bash
+   sudo apt install certbot python3-certbot-nginx
+   sudo certbot --nginx -d lazizaka.delete.uz
+   ```
