@@ -1,0 +1,16 @@
+[Unit]
+Description=Lazizaka Calculator Flask Service
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/lazizaka-calculator
+Environment="PATH=/var/www/lazizaka-calculator/venv/bin"
+Environment="DATABASE_PATH=/var/www/lazizaka-calculator/database.sqlite"
+Environment="AUTH_TOKEN=your-secret-token"
+ExecStart=/var/www/lazizaka-calculator/venv/bin/gunicorn --workers 4 --bind 0.0.0.0:7523 wsgi:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

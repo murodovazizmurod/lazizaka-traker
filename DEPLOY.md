@@ -1,32 +1,38 @@
 # Deploying Lazizaka Calculator
 
-This guide covers how to deploy the Flask-based Lazizaka Calculator to a production server.
+## Ubuntu Deployment / Systemd Service
 
-## Prerequisites
-- Python 3.9+
-- Pip
+To run this application as a permanent service on Ubuntu:
 
-## Setup Instructions
-
-1. **Clone or Upload the project** to your server.
-2. **Install Dependencies**:
+1. **Install Prerequisites**:
    ```bash
-   pip install -r requirements.txt
+   sudo apt update
+   sudo apt install python3-pip python3-venv gunicorn
    ```
-3. **Configure Environment**:
-   Create a `.env` file in the root directory:
-   ```env
-   AUTH_TOKEN=your-secret-token
-   DATABASE_PATH=database.sqlite
-   ```
-4. **Run the Application**:
-   For production, it is recommended to use a WSGI server like Gunicorn:
+
+2. **Prepare the Application**:
+   Move the project to its directory (e.g., `/var/www/lazizaka-calculator`) and set permissions:
    ```bash
-   gunicorn --bind 0.0.0.0:8000 wsgi:app
+   sudo chown -R www-data:www-data /var/www/lazizaka-calculator
    ```
 
-## Database
-The application uses SQLite. Ensure the server has write permissions to the `database.sqlite` file and its parent directory.
+3. **Configure the Service**:
+   Copy the provided `lazizaka.service` to the systemd directory:
+   ```bash
+   sudo cp lazizaka.service /etc/systemd/system/lazizaka.service
+   ```
+   *Note: Edit `/etc/systemd/system/lazizaka.service` to update `WorkingDirectory`, `ExecStart` paths, and environment variables if necessary.*
 
-## Static Files
-Flask is configured to serve static files from the `public/` directory. For high-traffic sites, consider using Nginx to serve the `public/` folder directly.
+4. **Start and Enable**:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable lazizaka
+   sudo systemctl start lazizaka
+   ```
+
+5. **Verify**:
+   Check if the service is running on port 7523:
+   ```bash
+   sudo systemctl status lazizaka
+   curl http://localhost:7523/api/health
+   ```
